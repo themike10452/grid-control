@@ -868,7 +868,11 @@ class GridControl(QtWidgets.QMainWindow):
     def initialize_kraken(self):
         """Initialize Kraken fans and pump to the initial slider values."""
 
-        Kraken.set_fan_speed(self.ui.horizontalSliderConfigKrakenFanSpeed.value())
+        if self.ui.radioKrakenFanModeFixed.isChecked():
+            Kraken.set_fan_speed(self.ui.horizontalSliderConfigKrakenFanSpeed.value())
+
+        if self.ui.radioKrakenPumpModeFixed.isChecked():
+            Kraken.set_pump_speed(self.ui.horizontalSliderConfigKrakenPumpSpeed.value())
 
     def kraken_update_speeds(self):
         if not Kraken.is_supported():
