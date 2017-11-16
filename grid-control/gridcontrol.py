@@ -16,6 +16,10 @@ import settings
 from PyQt5 import QtCore, QtWidgets, QtGui
 from ui.mainwindow import Ui_MainWindow
 
+from datetime import datetime
+from sensorutils import SensorUtils
+from kraken import Kraken
+
 # Define status icons (available in the resource file built with "pyrcc5"
 ICON_RED_LED = ":/icons/led-red-on.png"
 ICON_GREEN_LED = ":/icons/green-led-on.png"
@@ -72,8 +76,15 @@ class GridControl(QtWidgets.QMainWindow):
         # Populates the tree widget on tab "Sensor Config" with values from OpenHardwareMonitor
         openhwmon.populate_tree(self.hwmon, self.ui.treeWidgetHWMonData)
 
+        # Initialize Kraken communication object
+        Kraken.init()
+
         # Read saved UI configuration
         settings.read_settings(self.config, self.ui, self.hwmon)
+
+        # Pass sensor ids to SensorUtils after loading the settings
+        SensorUtils.set_cpu_sensor_ids(self.get_cpu_sensor_ids())
+        SensorUtils.set_gpu_sensor_ids(self.get_gpu_sensor_ids())
 
         # Create a QThread object that will poll the Grid for fan rpm and voltage and HWMon for temperatures
         # The lock is needed in all operations with the serial port
@@ -84,6 +95,12 @@ class GridControl(QtWidgets.QMainWindow):
                                             gpu_sensor_ids=self.get_gpu_sensor_ids(),
                                             cpu_calc="Max" if self.ui.radioButtonCPUMax.isChecked() else "Avg",
                                             gpu_calc="Max" if self.ui.radioButtonGPUMax.isChecked() else "Avg")
+
+        # Create a QThread object that will poll Kraken fan rpm and liquid temperature
+        self.kraken_thread = polling.KrakenPollingThread(polling_interval=1000)
+
+        # Store temperature readings for the past 5 seconds
+        self.temp_history = {"fans": {}, "pump": {}}
 
         # Connect signals and slots
         self.setup_ui_logic()
@@ -241,6 +258,61 @@ class GridControl(QtWidgets.QMainWindow):
         # This is needed as it's not possible to show a message box widget from the QThread directly
         self.thread.exception_signal.connect(self.thread_exception_handling)
 
+        #
+        # Kraken
+        # --------------------
+        if Kraken.is_supported():
+            self.ui.tabKraken.setEnabled(True)
+
+            # Connect Kraken liquid temperature and fan speed signals
+            self.kraken_thread.rpm_signal_fans.connect(self.ui.lcdNumberKrakenFanSpeed.display)
+            self.kraken_thread.rpm_signal_pump.connect(self.ui.lcdNumberKrakenPumpSpeed.display)
+            self.kraken_thread.temp_signal_liquid.connect(self.ui.lcdNumberKrakenLiquidTemp.display)
+            self.kraken_thread.temp_signal_cpu.connect(self.ui.lcdNumberKrakenCpuTemp.display)
+            self.kraken_thread.temp_signal_gpu.connect(self.ui.lcdNumberKrakenGpuTemp.display)
+            self.kraken_thread.update_signal.connect(self.kraken_update_speeds)
+
+            # Connect horizontal sliders to LCD values
+            self.ui.horizontalSliderConfigKrakenFanSpeed.valueChanged.connect(self.ui.lcdNumberConfigKrakenFanSpeed.display)
+            self.ui.horizontalSliderConfigKrakenPumpSpeed.valueChanged.connect(self.ui.lcdNumberConfigKrakenPumpSpeed.display)
+
+            # Update Kraken fan and pump speed based on changes to the horizontal sliders
+            self.ui.horizontalSliderConfigKrakenFanSpeed.valueChanged.connect(
+                lambda x: Kraken.set_fan_speed(x) if self.ui.radioKrakenFanModeFixed.isChecked() else None)
+
+            self.ui.horizontalSliderConfigKrakenPumpSpeed.valueChanged.connect(
+                lambda x: Kraken.set_pump_speed(x) if self.ui.radioKrakenPumpModeFixed.isChecked() else None)
+
+            # Enable / Disable config sections based on radio button toggle
+            self.ui.radioKrakenFanModeAuto.toggled.connect(
+                lambda x: self.ui.frameKrakenFanConfigAuto.setEnabled(x))
+
+            self.ui.radioKrakenPumpModeAuto.toggled.connect(
+                lambda x: self.ui.frameKrakenPumpConfigAuto.setEnabled(x))
+
+            self.ui.radioKrakenFanModeFixed.toggled.connect(
+                lambda x: (self.ui.frameKrakenFanConfigFixed.setEnabled(x),
+                           self.ui.horizontalSliderConfigKrakenFanSpeed
+                           .valueChanged
+                           .emit(self.ui.horizontalSliderConfigKrakenFanSpeed.value())))
+
+            self.ui.radioKrakenPumpModeFixed.toggled.connect(
+                lambda x: (self.ui.frameKrakenPumpConfigFixed.setEnabled(x),
+                           self.ui.horizontalSliderConfigKrakenPumpSpeed
+                           .valueChanged
+                           .emit(self.ui.horizontalSliderConfigKrakenPumpSpeed.value())))
+
+            # Update UI
+            self.ui.horizontalSliderConfigKrakenFanSpeed.valueChanged.emit(self.ui.horizontalSliderConfigKrakenFanSpeed.value())
+            self.ui.horizontalSliderConfigKrakenPumpSpeed.valueChanged.emit(self.ui.horizontalSliderConfigKrakenPumpSpeed.value())
+            self.ui.radioKrakenFanModeAuto.toggled.emit(self.ui.radioKrakenFanModeAuto.isChecked())
+            self.ui.radioKrakenFanModeFixed.toggled.emit(self.ui.radioKrakenFanModeFixed.isChecked())
+            self.ui.radioKrakenPumpModeAuto.toggled.emit(self.ui.radioKrakenPumpModeAuto.isChecked())
+            self.ui.radioKrakenPumpModeFixed.toggled.emit(self.ui.radioKrakenPumpModeFixed.isChecked())
+
+            # Exception handling
+            self.kraken_thread.exception_signal.connect(self.thread_exception_handling)
+
     def validate_fan_config(self):
         """Validate fan configuration values, prevent incorrect/invalid values."""
 
@@ -341,6 +413,10 @@ class GridControl(QtWidgets.QMainWindow):
         if self.thread.isRunning():
             self.thread.stop()
 
+        # If the Kraken polling thread is running, stop it
+        if self.kraken_thread.isRunning():
+            self.kraken_thread.stop()
+
         # Reset fan and temperature data (set rpm and voltage to "---" and temp to "0")
         self.reset_data()
 
@@ -416,6 +492,10 @@ class GridControl(QtWidgets.QMainWindow):
             self.ui.horizontalSliderGPUTemp.setEnabled(False)
             self.ui.horizontalSliderCPUTemp.setValue(0)
             self.ui.horizontalSliderGPUTemp.setValue(0)
+
+        if Kraken.is_supported():
+            self.initialize_kraken()
+            self.kraken_thread.start()
 
     def reset_data(self):
         """Reset fan rpm and voltage to "---" and activate the red status icon.
@@ -620,7 +700,20 @@ class GridControl(QtWidgets.QMainWindow):
     def restart(self):
         """Update 'Selected CPU and GPU sensors' and restart application"""
         # TODO: Add apply button
-        self.thread.update_sensors(self.get_cpu_sensor_ids(), self.get_gpu_sensor_ids())
+        cpu_sids = self.get_cpu_sensor_ids()
+        gpu_sids = self.get_gpu_sensor_ids()
+
+        # Update sensorutils
+        SensorUtils.set_cpu_sensor_ids(cpu_sids)
+        SensorUtils.set_gpu_sensor_ids(gpu_sids)
+
+        # Reset temp readings
+        self.temp_history["fans"].clear()
+        self.temp_history["pump"].clear()
+
+        # Update grid communication thread
+        self.thread.update_sensors(cpu_sids, gpu_sids)
+
         self.init_communication()
 
     def thread_exception_handling(self, msg):
@@ -729,6 +822,11 @@ class GridControl(QtWidgets.QMainWindow):
             self.thread.stop()
             print("Thread stopped")
 
+        if self.kraken_thread.isRunning():
+            self.kraken_thread.stop()
+
+        Kraken.dispose()
+
         # Save UI settings
         settings.save_settings(self.config, self.ui)
         print("Settings saved")
@@ -760,6 +858,85 @@ class GridControl(QtWidgets.QMainWindow):
         self.activateWindow()
         self.show()
         # self.trayIcon.hide()
+
+    #
+    # Kraken functions
+    # -----------------
+    def get_temp_calc_func(self):
+        return "Max" if self.ui.radioButtonCPUMax.isChecked() else "Avg"
+
+    def initialize_kraken(self):
+        """Initialize Kraken fans and pump to the initial slider values."""
+
+        Kraken.set_fan_speed(self.ui.horizontalSliderConfigKrakenFanSpeed.value())
+
+    def kraken_update_speeds(self):
+        if not Kraken.is_supported():
+            return
+
+        # Remove old entries from temp history
+        now = datetime.now()
+        self.temp_history["fans"] = {k: v for k, v in self.temp_history["fans"].items() if (now - k).total_seconds() <= 5}
+        self.temp_history["pump"] = {k: v for k, v in self.temp_history["pump"].items() if (now - k).total_seconds() <= 5}
+
+        cpu_temp = float(self.ui.lcdNumberKrakenCpuTemp.value())
+        gpu_temp = float(self.ui.lcdNumberKrakenGpuTemp.value())
+        liquid_temp = float(self.ui.lcdNumberKrakenLiquidTemp.value())
+
+        # Auto fan speed
+        if self.ui.radioKrakenFanModeAuto.isChecked():
+            current_temp = gpu_temp if self.ui.radioButtonGPUKrakenFans.isChecked()\
+                else liquid_temp if self.ui.radioButtonLiquidKrakenFans.isChecked()\
+                else cpu_temp
+
+            # Calculate average temperature for last 5 seconds
+            self.temp_history["fans"][now] = current_temp
+            current_temp = sum(self.temp_history["fans"].values()) / len(self.temp_history["fans"])
+
+            min_speed = self.ui.spinBoxMinSpeedKrakenFans.value()
+            int_speed = self.ui.spinBoxIntermediateSpeedKrakenFans.value()
+            max_speed = self.ui.spinBoxMaxSpeedKrakenFans.value()
+
+            min_temp = self.ui.spinBoxStartIncreaseSpeedKrakenFans.value()
+            int_temp = self.ui.spinBoxIntermediateTempKrakenFans.value()
+            max_temp = self.ui.spinBoxMaxTempKrakenFans.value()
+
+            fan_speed = min_speed
+
+            if max_temp <= current_temp:
+                fan_speed = max_speed
+            elif int_temp <= current_temp:
+                fan_speed = int_speed + ((current_temp - int_temp) / (max_temp - int_temp)) * (max_speed - int_speed)
+            elif min_temp < current_temp < int_temp:
+                fan_speed = min_speed + ((current_temp - min_temp) / (int_temp - min_temp)) * (int_speed - min_speed)
+
+            Kraken.set_fan_speed(int(fan_speed))
+
+        # Auto pump speed
+        if self.ui.radioKrakenPumpModeAuto.isChecked():
+            current_temp = gpu_temp if self.ui.radioButtonGPUKrakenPump.isChecked() \
+                else liquid_temp if self.ui.radioButtonLiquidKrakenPump.isChecked() \
+                else cpu_temp
+
+            # Calculate average temperature for last 5 seconds
+            self.temp_history["pump"][now] = current_temp
+            current_temp = sum(self.temp_history["pump"].values()) / len(self.temp_history["pump"])
+
+            min_speed = self.ui.spinBoxMinSpeedKrakenPump.value()
+            int_speed = self.ui.spinBoxIntermediateSpeedKrakenPump.value()
+            max_speed = self.ui.spinBoxMaxSpeedKrakenPump.value()
+
+            int_temp = self.ui.spinBoxIntermediateTempKrakenPump.value()
+            max_temp = self.ui.spinBoxMaxTempKrakenPump.value()
+
+            pump_speed = min_speed
+
+            if max_temp <= current_temp:
+                pump_speed = max_speed
+            elif int_temp <= current_temp:
+                pump_speed = int_speed
+
+            Kraken.set_pump_speed(int(pump_speed))
 
 
 class SystemTrayIcon(QtWidgets.QSystemTrayIcon):

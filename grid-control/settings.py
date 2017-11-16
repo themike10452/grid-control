@@ -7,6 +7,7 @@
 from PyQt5 import QtCore, QtWidgets, QtGui
 
 import openhwmon
+from kraken import Kraken
 
 
 def read_settings(config, ui, hwmon):
@@ -152,6 +153,40 @@ def read_settings(config, ui, hwmon):
     ui.lineEditFan5.setText(config.value("fan5_name", "Fan 5", type=str))
     ui.lineEditFan6.setText(config.value("fan6_name", "Fan 6", type=str))
 
+    #
+    # Kraken tab
+    # ------------------------
+    if Kraken.is_supported():
+        # Radio
+        if config.value("kraken_fan_mode_fixed", False, type=bool):
+            ui.radioKrakenFanModeFixed.setChecked(True)
+
+        if config.value("kraken_pump_mode_fixed", False, type=bool):
+            ui.radioKrakenPumpModeFixed.setChecked(True)
+
+        # Fan speed
+        ui.radioButtonCPUKrakenFans.setChecked(config.value("kraken_fans_use_cpu_temp",                True, type=bool))
+        ui.radioButtonGPUKrakenFans.setChecked(config.value("kraken_fans_use_gpu_temp",               False, type=bool))
+        ui.radioButtonLiquidKrakenFans.setChecked(config.value("kraken_fans_use_liquid_temp",         False, type=bool))
+        ui.spinBoxStartIncreaseSpeedKrakenFans.setValue(config.value("start_increase_speed_kraken_fans", 50, type=int))
+        ui.spinBoxIntermediateTempKrakenFans.setValue(config.value("intermediate_temp_kraken_fans",      60, type=int))
+        ui.spinBoxMaxTempKrakenFans.setValue(config.value("max_temp_kraken_fans",                        75, type=int))
+        ui.spinBoxMinSpeedKrakenFans.setValue(config.value("min_speed_kraken_fans",                      35, type=int))
+        ui.spinBoxIntermediateSpeedKrakenFans.setValue(config.value("intermediate_speed_kraken_fans",    60, type=int))
+        ui.spinBoxMaxSpeedKrakenFans.setValue(config.value("max_speed_kraken_fans",                      75, type=int))
+        ui.horizontalSliderConfigKrakenFanSpeed.setValue(config.value("fixed_speed_kraken_fans",         50, type=int))
+
+        # Pump speed
+        ui.radioButtonCPUKrakenPump.setChecked(config.value("kraken_pump_use_cpu_temp",                True, type=bool))
+        ui.radioButtonGPUKrakenPump.setChecked(config.value("kraken_pump_use_gpu_temp",               False, type=bool))
+        ui.radioButtonLiquidKrakenPump.setChecked(config.value("kraken_pump_use_liquid_temp",         False, type=bool))
+        ui.spinBoxIntermediateTempKrakenPump.setValue(config.value("intermediate_temp_kraken_pump",      50, type=int))
+        ui.spinBoxMaxTempKrakenPump.setValue(config.value("max_temp_kraken_pump",                        60, type=int))
+        ui.spinBoxMinSpeedKrakenPump.setValue(config.value("min_speed_kraken_pump",                      60, type=int))
+        ui.spinBoxIntermediateSpeedKrakenPump.setValue(config.value("intermediate_speed_kraken_pump",    80, type=int))
+        ui.spinBoxMaxSpeedKrakenPump.setValue(config.value("max_speed_kraken_pump",                     100, type=int))
+        ui.horizontalSliderConfigKrakenPumpSpeed.setValue(config.value("fixed_speed_kraken_pump",        80, type=int))
+
 def save_settings(config, ui):
     """Save current UI configuration to the OS repository, called when exiting the main application"""
 
@@ -277,3 +312,32 @@ def save_settings(config, ui):
     config.setValue("fan4_name", ui.lineEditFan4.text())
     config.setValue("fan5_name", ui.lineEditFan5.text())
     config.setValue("fan6_name", ui.lineEditFan6.text())
+
+    #
+    # Kraken tab
+    # ------------------------
+    if Kraken.is_supported():
+        # Fan speed
+        config.setValue("kraken_fans_use_cpu_temp", ui.radioButtonCPUKrakenFans.isChecked())
+        config.setValue("kraken_fans_use_gpu_temp", ui.radioButtonGPUKrakenFans.isChecked())
+        config.setValue("kraken_fans_use_liquid_temp", ui.radioButtonLiquidKrakenFans.isChecked())
+        config.setValue("start_increase_speed_kraken_fans", ui.spinBoxStartIncreaseSpeedKrakenFans.value())
+        config.setValue("intermediate_temp_kraken_fans", ui.spinBoxIntermediateTempKrakenFans.value())
+        config.setValue("max_temp_kraken_fans", ui.spinBoxMaxTempKrakenFans.value())
+        config.setValue("min_speed_kraken_fans", ui.spinBoxMinSpeedKrakenFans.value())
+        config.setValue("intermediate_speed_kraken_fans", ui.spinBoxIntermediateSpeedKrakenFans.value())
+        config.setValue("max_speed_kraken_fans", ui.spinBoxMaxSpeedKrakenFans.value())
+        config.setValue("kraken_fan_mode_fixed", ui.radioKrakenFanModeFixed.isChecked())
+        config.setValue("fixed_speed_kraken_fans", ui.horizontalSliderConfigKrakenFanSpeed.value())
+
+        # Pump speed
+        config.setValue("kraken_pump_use_cpu_temp", ui.radioButtonCPUKrakenPump.isChecked())
+        config.setValue("kraken_pump_use_gpu_temp", ui.radioButtonGPUKrakenPump.isChecked())
+        config.setValue("kraken_pump_use_liquid_temp", ui.radioButtonLiquidKrakenPump.isChecked())
+        config.setValue("intermediate_temp_kraken_pump", ui.spinBoxIntermediateTempKrakenPump.value())
+        config.setValue("max_temp_kraken_pump", ui.spinBoxMaxTempKrakenPump.value())
+        config.setValue("min_speed_kraken_pump", ui.spinBoxMinSpeedKrakenPump.value())
+        config.setValue("intermediate_speed_kraken_pump", ui.spinBoxIntermediateSpeedKrakenPump.value())
+        config.setValue("max_speed_kraken_pump", ui.spinBoxMaxSpeedKrakenPump.value())
+        config.setValue("kraken_pump_mode_fixed", ui.radioKrakenPumpModeFixed.isChecked())
+        config.setValue("fixed_speed_kraken_pump", ui.horizontalSliderConfigKrakenPumpSpeed.value())

@@ -15,6 +15,8 @@ from PyQt5 import QtCore
 import grid
 import helper
 import openhwmon
+from kraken import Kraken
+from sensorutils import SensorUtils
 
 # Define status icons (available in the resource file built with "pyrcc5"
 ICON_RED_LED = ":/icons/led-red-on.png"
@@ -305,6 +307,76 @@ class PollingThread(QtCore.QThread):
             # Stop the thread
             self.stop()
             print("Thread stopped at exception")
+
+            # Get info about the exception
+            (type, value, traceback) = sys.exc_info()
+
+            # Generate a detailed error message
+            msg = helper.exception_message_qthread(type, value, traceback)
+
+            # Emit a signal with the error message to be displayed in a message box in the main UI
+            self.exception_signal.emit(msg)
+
+
+class KrakenPollingThread(QtCore.QThread):
+
+    rpm_signal_fans = QtCore.pyqtSignal(str)
+    rpm_signal_pump = QtCore.pyqtSignal(str)
+    temp_signal_liquid = QtCore.pyqtSignal(str)
+    temp_signal_cpu = QtCore.pyqtSignal(str)
+    temp_signal_gpu = QtCore.pyqtSignal(str)
+    update_signal = QtCore.pyqtSignal()
+    exception_signal = QtCore.pyqtSignal(str)
+
+    def __init__(self, polling_interval):
+        super().__init__()
+
+        self.keep_running = False
+        self.polling_interval = polling_interval
+
+    def __del__(self):
+        self.wait()
+
+    def stop(self):
+        print("Stopping Kraken thread")
+
+        self.keep_running = False
+        self.wait()
+
+        SensorUtils.dispose_thread()
+
+        print("Kraken thread stopped")
+
+    def run(self):
+        self.keep_running = True
+
+        try:
+            print("Starting Kraken thread...")
+
+            SensorUtils.initialize_thread()
+
+            while self.keep_running:
+                fs = Kraken.read_fan_rpm()
+                ps = Kraken.read_pump_rpm()
+                lt = Kraken.read_liquid_temp()
+
+                ct = SensorUtils.get_cpu_temp("Max")
+                gt = SensorUtils.get_gpu_temp("Max")
+
+                self.rpm_signal_fans.emit(str(fs))
+                self.rpm_signal_pump.emit(str(ps))
+
+                self.temp_signal_liquid.emit(str(lt))
+                self.temp_signal_cpu.emit(str(ct))
+                self.temp_signal_gpu.emit(str(gt))
+
+                self.update_signal.emit()
+
+                time.sleep(self.polling_interval / 1000)
+        except Exception as e:
+            # Stop the thread
+            self.stop()
+            print("Kraken thread error")
 
             # Get info about the exception
             (type, value, traceback) = sys.exc_info()
