@@ -16,6 +16,7 @@ import settings
 from PyQt5 import QtCore, QtWidgets, QtGui
 from ui.mainwindow import Ui_MainWindow
 
+from singleapplication import SingleApplicationWithMessaging
 from datetime import datetime
 from sensorutils import SensorUtils
 from kraken import Kraken
@@ -27,7 +28,7 @@ ICON_GREEN_LED = ":/icons/green-led-on.png"
 # TODO: Verify "Fan config" values are valid in the UI
 # TODO: Check for loop with range 1,7
 
-class GridControl(QtWidgets.QMainWindow):
+class GridControl(SingleApplicationWithMessaging):
     """Create the UI, based on PyQt5.
     The UI elements are defined in "mainwindow.py" and resource file "resources_rc.py", created in QT Designer.
 
@@ -40,8 +41,13 @@ class GridControl(QtWidgets.QMainWindow):
     Note: Never modify "mainwindow.py" or "resource_rc.py" manually.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, argv, key):
+        super().__init__(argv, key)
+
+        # If another instance is already running, show other instance and exit
+        if self.other_instance_running():
+            self.send_message("show")
+            sys.exit(0)
 
         # Create the main window
         self.ui = Ui_MainWindow()
@@ -122,6 +128,9 @@ class GridControl(QtWidgets.QMainWindow):
 
     def setup_ui_logic(self):
         """Define QT signal and slot connections and initializes UI values."""
+
+        # Connect inter-instance message handler
+        self.set_app_message_handler(self.handle_app_message)
 
         # Update "Fan percentage" LCD values from horizontal sliders initial value
         self.ui.lcdNumberFan1.display(self.ui.horizontalSliderFan1.value())
@@ -863,6 +872,10 @@ class GridControl(QtWidgets.QMainWindow):
         self.show()
         # self.trayIcon.hide()
 
+    def handle_app_message(self, message):
+        if message == "show":
+            self.restore_from_tray()
+
     #
     # Kraken functions
     # -----------------
@@ -966,7 +979,6 @@ class SystemTrayIcon(QtWidgets.QSystemTrayIcon):
         if reason == QtWidgets.QSystemTrayIcon.DoubleClick:
             self.parent.toggle_visibility()
 
-
 if __name__ == "__main__":
     # Use a rewritten excepthook for displaying unhandled exceptions as a QMessageBox
     sys.excepthook = helper.excepthook
@@ -975,7 +987,7 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
 
     # Create the main window
-    win = GridControl()
+    win = GridControl(sys.argv, "grid-control")
 
     # Set program version
     win.setWindowTitle("Grid Control 1.0.5")
