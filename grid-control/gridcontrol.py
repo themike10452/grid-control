@@ -313,6 +313,10 @@ class GridControl(QtWidgets.QMainWindow):
             # Exception handling
             self.kraken_thread.exception_signal.connect(self.thread_exception_handling)
 
+        else:
+            # Remove kraken tab if device was not detected
+            self.ui.tabWidget.removeTab(4)
+
     def validate_fan_config(self):
         """Validate fan configuration values, prevent incorrect/invalid values."""
 
