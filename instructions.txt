@@ -1,0 +1,15 @@
+1 Make sure to completely stop (or uninstall) CAM before running grid-control as they are not compatible.
+
+2- Download OpenHardwareMonitor from http://openhardwaremonitor.org/downloads/
+
+3- Go to this page https://github.com/themike10452/grid-control/releases/tag/Exp2 and download grid-control-exp2.exe.
+
+4- Download zadig utility http://zadig.akeo.ie/downloads/zadig-2.3.exe and start it, go to options and select List All Devices, then look for NZXT USB Device in the device list, make sure the USB ID of the selected device is 1E71, change the driver to libusb-win32 and click replace driver, then reboot your pc afterwards and try my software again. I attached a screenshot to help you set it up correctly, here: https://i.imgur.com/gPHME5m.png
+
+5- After completing step 4 and rebooting, start openhardwaremonitor then start grid-control-exp2
+
+Important: OpenHardwareMonitor must be running in the background in order for grid-control to work.
+When you open grid-control go to sensor config tab and select which sensors are to be used for CPU and GPU temperature reading.
+Ignore everything in 'General' tab if you don't have Grid+, the tabs of interest are 'Kraken' and 'Lighting'.
+
+*To revert the changes made to the drivers in step 4 in order to use CAM software again, just go to device manager, locate the device under lib-winusb and uninstall it then reboot.
